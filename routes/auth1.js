@@ -38,21 +38,29 @@ router.post("/registration", async (req, res) => {
   }
 });
 //Create
-router.post("/create", async (req, res) => {
+router.post("/create", upload.single("image"), async (req, res) => {
   const { title, content, userId } = req.body;
+  const image = req.file ? req.file.filename : null;
 
   if (!title || !content || !userId) {
     return res.status(400).json({ error: "All fields are required" });
   }
 
   try {
-    const newPost = new Post({ title, content, userId });
+    const newPost = new Post({
+      title,
+      content,
+      userId,
+      image,
+    });
+
     await newPost.save();
     res.status(201).json({ message: "Post created successfully" });
   } catch (err) {
     res.status(500).json({ error: "Server error" });
   }
 });
+
 //Get all posts
 router.get("/all/:userId", async (req, res) => {
   try {
