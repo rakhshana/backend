@@ -3,6 +3,7 @@ const router = express.Router();
 const User = require("../models/blogusers");
 const Post = require("../models/Post");
 const upload = require("../middleware/upload");
+const mongoose = require("mongoose");
 
 // Login
 router.post("/signin", async (req, res) => {
@@ -39,11 +40,13 @@ router.post("/registration", async (req, res) => {
 });
 //Create
 router.post("/create", upload.single("image"), async (req, res) => {
-  const { title, content, userId } = req.body;
+  const { title, content, userId, videoUrl } = req.body; // include videoUrl here
   const image = req.file ? req.file.filename : null;
 
   if (!title || !content || !userId) {
-    return res.status(400).json({ error: "All fields are required" });
+    return res
+      .status(400)
+      .json({ error: "Title, content, and userId are required" });
   }
 
   try {
@@ -51,12 +54,16 @@ router.post("/create", upload.single("image"), async (req, res) => {
       title,
       content,
       userId,
+      videoUrl: videoUrl || null,
       image,
     });
 
     await newPost.save();
-    res.status(201).json({ message: "Post created successfully" });
+    res
+      .status(201)
+      .json({ message: "Post created successfully", post: newPost });
   } catch (err) {
+    console.error("Error creating post:", err);
     res.status(500).json({ error: "Server error" });
   }
 });
@@ -91,10 +98,10 @@ router.delete("/delete/:postId", async (req, res) => {
 // GET /api/auth/all
 router.get("/all", async (req, res) => {
   try {
-    const posts = await Post.find().populate(
-      "userId",
-      "name profilePhoto about"
-    ); // Populate only needed fields
+    const posts = await Post.find()
+      .populate("userId", "name profilePhoto about")
+      .populate("comments.user", "name profilePhoto");
+
     res.status(200).json(posts);
   } catch (err) {
     res.status(500).json({ error: "Server error" });
@@ -120,21 +127,45 @@ router.post("/:postId/like", async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 });
-// POST /api/auth/:postId/comment
+
 router.post("/:postId/comment", async (req, res) => {
   const { postId } = req.params;
-  const { user, text } = req.body;
+  const { userId, text } = req.body;
+
+  // Validate postId and userId are valid ObjectIds
+  if (!postId || !mongoose.Types.ObjectId.isValid(postId)) {
+    return res.status(400).json({ error: "Invalid postId" });
+  }
+
+  if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+    return res.status(400).json({ error: "Invalid userId" });
+  }
+
+  if (!text || text.trim() === "") {
+    return res.status(400).json({ error: "Comment text is required" });
+  }
 
   try {
     const post = await Post.findById(postId);
     if (!post) return res.status(404).json({ error: "Post not found" });
 
-    post.comments.push({ user, text });
+    // Remove corrupted comments
+    post.comments = post.comments.filter(
+      (c) => c.user && c.text && mongoose.Types.ObjectId.isValid(c.user)
+    );
+
+    // Add the new comment
+    post.comments.push({ user: userId, text });
     await post.save();
 
-    res.status(200).json(post);
-  } catch (err) {
-    res.status(500).json({ error: "Server error" });
+    const updatedPost = await Post.findById(postId)
+      .populate("userId", "name profilePhoto about")
+      .populate("comments.user", "name profilePhoto");
+
+    res.status(200).json(updatedPost);
+  } catch (error) {
+    console.error("Error adding comment:", error.stack);
+    res.status(500).json({ error: "Server error", details: error.message });
   }
 });
 
@@ -143,7 +174,7 @@ router.post(
   upload.single("profile"),
   async (req, res) => {
     try {
-      const userId = req.params.userId.trim(); // ✅ Fix newline issue
+      const userId = req.params.userId.trim();
 
       const user = await User.findByIdAndUpdate(
         userId,
@@ -180,6 +211,29 @@ router.put("/user/:userId", async (req, res) => {
     res.status(200).json({ message: "Profile updated", user });
   } catch (err) {
     res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /api/auth/post/:postId - Get a single post by ID
+router.get("/:postId", async (req, res) => {
+  const { postId } = req.params;
+
+  // Validate postId
+  if (!postId || !mongoose.Types.ObjectId.isValid(postId)) {
+    return res.status(400).json({ error: "Invalid postId" });
+  }
+
+  try {
+    const post = await Post.findById(postId)
+      .populate("userId", "name profilePhoto about")
+      .populate("comments.user", "name profilePhoto");
+
+    if (!post) return res.status(404).json({ error: "Post not found" });
+
+    res.status(200).json(post);
+  } catch (error) {
+    console.error("Error fetching post:", error);
+    res.status(500).json({ error: "Server error", details: error.message });
   }
 });
 
