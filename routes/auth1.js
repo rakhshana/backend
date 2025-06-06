@@ -27,17 +27,32 @@ router.post("/signin", async (req, res) => {
 // Register
 router.post("/registration", async (req, res) => {
   try {
+    console.log("Request body:", req.body); // 🔍 Check what’s actually coming in
+
     const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email and password are required" });
+    }
+
     const existingUser = await User.findOne({ email });
     if (existingUser)
       return res.status(400).json({ error: "User already exists" });
+
     const newUser = new User({ email, password });
+    console.log("New User object:", newUser); // 🔍 Show what’s being saved
+
     await newUser.save();
     res.status(201).json({ message: "User registered successfully" });
   } catch (err) {
-    res.status(500).json({ error: "Server error" });
+    console.error("Registration error:", err); // 🔍 Log the real error
+    res.status(500).json({
+      error: "Server error",
+      details: err.message,
+    });
   }
 });
+
 //Create
 router.post("/create", upload.single("image"), async (req, res) => {
   const { title, content, userId, videoUrl } = req.body; // include videoUrl here
